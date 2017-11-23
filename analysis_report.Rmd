@@ -1,0 +1,53 @@
+---
+title: "Preliminary Analysis of the player logs dataset"
+author: "Nitish Rangarajan"
+date: "November 22, 2017"
+output: html_document
+---
+
+##Player Log Analysis
+
+Load the library and the dataset
+```{r}
+library(tidyverse)
+setwd("C:/Users/nrangara/Downloads/WorldOfWarcraft/output")
+data<- read_csv("wowah_data.csv")
+```
+For the preliminary analysis, the number of characters at each level and number of logins at each level were checked. 
+```{r}
+data %>%
+    group_by(level) %>%
+    summarise(chars = n_distinct(char), 
+              logins = n()) %>%
+    gather(var, value, -level) %>%
+    ggplot(aes(x = level, y = value)) +
+    geom_line() +
+    facet_wrap(~var, ncol = 1, scales = "free_y")
+```
+
+The  results  of  the  number  of  characters  at  each  level  wasn't unsurprising as there were lots of people in the first few levels, but  the  results  show  that  there  lots  of  people  who  frequently login when they are at the level ~70. 
+
+Convert the timestamp to date format. Then generate the player hours. The playing patterns of players over the years can be found by converting the number of observations of each player to hours by  dividing  the  count  for  each  user  by  6  since  we  know  that the observations were collected every 10 minutes.
+```{r}
+df <- tbl_df(data)
+
+data$date <- as.Date(gsub(" .+","",df$timestamp),format = "%m/%d/%y")
+
+data %>%  
+  group_by(date,char) %>%
+  summarize(hoursLoggedIn=n()/6) -> hours
+
+```
+
+```{r}
+hours %>%
+  ggplot(aes(x=date,hoursLoggedIn))+geom_point(alpha=0.01)
+```
+
+On  checking  how  many  average  players  are  logged  in  each day  on  a  hourly  basis  to  check  if  there  are  actually  hardcore players,  we  can  see  a  gradual  dropoff  as  expected  in  the number  of  players.  Login  time  of  47  hours  might  be  because of duplicate observations.
+```{r}
+hours$hoursLoggedIn %>% 
+  table %>% data.frame %>%
+  plot()
+```
+

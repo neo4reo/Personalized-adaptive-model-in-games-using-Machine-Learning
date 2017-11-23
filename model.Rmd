@@ -1,0 +1,206 @@
+---
+title: "Model"
+author: "Nitish Rangarajan"
+date: "November 22, 2017"
+output: html_document
+---
+
+##Models for predicting player unsubscription
+
+After learning about the data, the Deep Learning Network was used with the Keras library in python. Keras is a high level neural  networks  API  that  is  written  in  Python  and  developed with a focus on enabling fast experimentation. 
+
+The sequential deep learning model in Keras was used since that is best suited to classify human actions with limited knowledge. 
+```{r}
+library(tidyverse)
+library(lattice)
+library(keras)
+```
+
+Load the dataset and convert the timestamp into MMDDYY format.
+```{r}
+setwd("C:/Users/nrangara/Downloads/WorldOfWarcraft/output")
+data<- read_csv("wowah_data.csv")
+
+data<- data%>% mutate(Date=as.Date(data$timestamp, "%m/%d/%y"))
+
+```
+
+To predict the unsubscription, a deep learning model has been built  that  will  be  trained  on  the  data  from  2005  to  2007  to predict  the  unsubscription  for  the  year  2008-2009.  So,  the player by total number of entries, number the days online from 2005  to  2007  with  the  last  level,  the  minimum  and  the maximum  guild  were  grouped.  These  are  my  x  variables.  
+
+```{r}
+threshold<-0
+x <- filter(data, Date<"2008-01-01") %>%
+  group_by(char) %>%
+  summarise(n=n(), 
+            minGuild=min(guild), 
+            maxGuild=max(guild), 
+            minDate = min(Date), 
+            maxDate = max(Date), 
+            maxLevel=max(level)) %>%
+  arrange(desc(n)) %>%
+  mutate(TimeDiff = as.numeric(difftime(maxDate,minDate, units="days")))
+```
+
+For the  y  variable  in  the  network,  a  binary  variable  was  created that  denotes  if  the  user  was  online  during  2008-2009  or  not.
+
+```{r}
+y <- data %>%
+  mutate(n2008=ifelse(Date>=as.Date("2008-01-01"),1L,0L)) %>%
+  group_by(char) %>%
+  summarise(yCount = sum(n2008)) %>%
+  mutate(y=ifelse(yCount>threshold,1,0))
+```
+
+We then merge the x and the y variables to form the train and he test dataset.
+
+```{r}
+dataset <- merge(x,y,by="char")
+
+```
+
+Remove the date field since we already have the n field that denotes the number of days the user was online. There  were  totally  91,045  avatar  records.  The  training  data that  contained  80%  of  the  avatars  and  test  data  that  had  20% of the avatars was created.
+
+```{r}
+dataset[c("minDate","maxDate")]<-list(NULL)
+
+set.seed(101)
+sample <- sample.int(n = nrow(dataset), size = floor(.80*nrow(dataset)), replace = F)
+train <- dataset[sample, ]
+test  <- dataset[-sample, ]
+x_train<-train[,2:7]
+#y_train<-as.factor(train[,10])
+y_train<-train[,8]
+x_test<-test[,2:7]
+#y_test<-as.factor(test[,10])
+y_test<-test[,8]
+```
+
+Convert the train and test data frames to matrices for the deep learning network. 
+
+```{r}
+x_train1<-as.matrix(x_train)
+y_train1<-as.matrix(y_train)
+x_test1<-as.matrix(x_test)
+y_test1<-as.matrix(y_test)
+
+```
+
+#Deep Learning model
+
+Reduce the x variable's dimensions to 6 and make the y variable to be catagorical.
+
+```{r}
+dim(x_train1) <- c(nrow(x_train), 6)
+dim(x_test1) <- c(nrow(x_test), 6)
+
+y_train1 <- to_categorical(y_train, 2)
+y_test1 <- to_categorical(y_test, 2)
+```
+
+A  sequential model  was  created  with  5  hidden  layers  with  the  first  hidden layer containing 512 units, second hidden layer containing 256 units,  third  hidden  layer  containing  128  units,  fourth  hidden layer   containing   64   units   and   used   the   "relu"   activation function.  The  last  hidden  layer  contained  2  units  because  of the size of y and used the "softmax" activation function.
+
+```{r}
+model <- keras_model_sequential() 
+model %>% 
+  layer_dense(units = 512, activation = "relu", input_shape = c(6)) %>% 
+  layer_dropout(rate = 0.6) %>%
+  layer_dense(units = 256, activation = "relu") %>% 
+  layer_dropout(rate = 0.4) %>% 
+  layer_dense(units = 128, activation = "relu") %>% 
+  layer_dropout(rate = 0.3) %>% 
+  layer_dense(units = 64, activation = "relu") %>% 
+  layer_dropout(rate = 0.2) %>%
+  layer_dense(units = 2, activation = "softmax")
+```
+
+RMSprop increases  the  step  rates,  keep  the  learning  rate  constant  by exponentially decaying the average of squared gradients.
+
+```{r}
+optimizer <- optimizer_rmsprop(lr = 0.01)
+```
+
+The model's summary can be seen below. After verifying the model, compile the model.
+
+```{r}
+summary(model)
+model %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_rmsprop(),
+  metrics = c("accuracy")
+)
+```
+
+Fit the model that was created with the training data. To  fit  the  model  using  the  training  data,  50  epochs were used and a validation split of 0.2 to prevent overfitting
+
+```{r}
+history <- model %>% fit(
+  x_train1, y_train1, 
+  epochs = 50,batch_size = nrow(x_test1),
+  validation_split = 0.2
+)
+```
+
+```{r}
+plot(history)
+```
+
+The model has an accuracy of 96% with a loss of 0.11 on evaluating it with the test data.
+
+```{r}
+model %>% evaluate(x_test1, y_test1,verbose = 0)
+
+```
+
+#SVM Model
+
+The same training data with the labelled X and Y variables can  be  fed  to  the Support  Vector  Machine  as  an  input  and then  predict  the  unsubscription  for  the  test  data so that the accuracy of  SVM  and  Deep  learning can  be  compared  and  the  better model can be found.
+
+```{r}
+library("e1071")
+
+
+```
+
+Create a model and fit the labelled x with labelled y data and summarize the model.
+
+```{r}
+svm_model <- svm(y_train~.,data=cbind(x_train,y_train))
+summary(svm_model)
+```
+
+Now predict the model with the test data. We round the predicted values to 1's and 0's
+```{r}
+Prediction <- predict(svm_model,x_test)
+Prediction<-ifelse(Prediction<0.25,0,1)
+
+```
+
+Accuracy is the number of true negatives and true positives to the total number of observations. Precision is the number of correct observations made from the retrieved observations. Recall is the number of correct observations made from the total correct observations.
+
+```{r}
+accuracy <- function(ypred, y){
+  tab <- table(ypred, y)
+  return(sum(diag(tab))/sum(tab))
+}
+# function to compute precision
+precision <- function(ypred, y){
+  tab <- table(ypred, y)
+  return((tab[2,2])/(tab[2,1]+tab[2,2]))
+}
+# function to compute recall
+recall <- function(ypred, y){
+  tab <- table(ypred, y)
+  return(tab[2,2]/(tab[1,2]+tab[2,2]))
+}
+```
+
+The SVM model had an accuracy of 90% which could be improved by tuning the model using the appropriate range and gamma values.
+
+```{r}
+
+# accuracy measures
+accuracy(Prediction, y_test)
+precision(Prediction, y_test)
+recall(Prediction, y_test)
+```
+
